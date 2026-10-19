@@ -944,14 +944,25 @@ export function drawPlayerSprite(
 ) {
   if (player.hiddenInSpotId !== null) {
     if (isLocal || viewerRole === 'hider') {
+      const remSec = Math.ceil(player.hideTimerRemaining ?? 30);
+      const ratio = Math.max(0, Math.min(1, (player.hideTimerRemaining ?? 30) / 30));
+      const px = Math.round(player.x);
+      const py = Math.round(player.y);
+
       ctx.save();
-      ctx.fillStyle = isLocal ? '#10B981' : '#38BDF8';
+      // Countdown bar background
+      ctx.fillStyle = '#090D16';
+      ctx.fillRect(px - 22, py - 34, 44, 6);
+      ctx.fillStyle = remSec <= 6 ? '#EF4444' : isLocal ? '#10B981' : '#38BDF8';
+      ctx.fillRect(px - 21, py - 33, Math.round(42 * ratio), 4);
+
+      ctx.fillStyle = remSec <= 6 ? '#FCA5A5' : isLocal ? '#10B981' : '#38BDF8';
       ctx.font = 'bold 10px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
       ctx.fillText(
-        isLocal ? '[HIDDEN - YOU]' : `[HIDDEN: ${player.name}]`,
-        Math.round(player.x),
-        Math.round(player.y - 26)
+        isLocal ? `[HIDDEN · ${remSec}s]` : `[${player.name} · ${remSec}s]`,
+        px,
+        py - 38
       );
       ctx.restore();
     }

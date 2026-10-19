@@ -28,6 +28,9 @@ export interface PlayerState {
   vy: number;
   facing: FacingDirection;
   hiddenInSpotId: string | null;
+  hideTimerRemaining?: number;
+  lastExitedSpotId?: string | null;
+  spotCooldownRemaining?: number;
   preHideX?: number;
   preHideY?: number;
   interactingWithObjective: boolean;
@@ -43,8 +46,9 @@ export interface MatchConfig {
   mapId: 'downtown_plaza' | 'harbor_district';
   seekerCount: 1 | 2;
   hiderBaseSpeed: number; // Default 160 px/s (100%)
-  seekerSpeedMultiplier: number; // Default 1.5 (150%)
+  seekerSpeedMultiplier: number; // Default 1.1 (110%)
   headStartSeconds: number; // Default 10s
+  maxHideDurationSeconds: number; // Default 30s max hide time in a spot
   objectiveTotalStages: number; // Default 3
   objectiveStageDurationSeconds: number; // Default 15s per stage
   directEliminationRange: number; // Default 56 px
@@ -83,8 +87,9 @@ export const DEFAULT_MATCH_CONFIG: MatchConfig = {
   mapId: 'downtown_plaza',
   seekerCount: 1,
   hiderBaseSpeed: 160,
-  seekerSpeedMultiplier: 1.5,
+  seekerSpeedMultiplier: 1.1,
   headStartSeconds: 10,
+  maxHideDurationSeconds: 30,
   objectiveTotalStages: 3,
   objectiveStageDurationSeconds: 15,
   directEliminationRange: 58,
@@ -422,6 +427,9 @@ export function startAuthoritativeMatch(
     p.role = isSeeker ? 'seeker' : 'hider';
     p.alive = true;
     p.hiddenInSpotId = null;
+    p.hideTimerRemaining = 0;
+    p.lastExitedSpotId = null;
+    p.spotCooldownRemaining = 0;
     p.interactingWithObjective = false;
     p.eliminationsCount = 0;
     p.inspectionsCount = 0;
@@ -512,6 +520,17 @@ export function attemptEnterHidingSpot(
     return { ok: false, reason: 'This hiding place is already occupied!' };
   }
 
+  if (
+    player.lastExitedSpotId === spot.id &&
+    player.spotCooldownRemaining &&
+    player.spotCooldownRemaining > 0
+  ) {
+    return {
+      ok: false,
+      reason: `Wait ${Math.ceil(player.spotCooldownRemaining)}s before hiding in this same spot again!`,
+    };
+  }
+
   const spotCenterX = spot.x + spot.width / 2;
   const spotCenterY = spot.y + spot.height / 2;
   const dist = Math.hypot(player.x - spotCenterX, player.y - spotCenterY);
@@ -527,6 +546,7 @@ export function attemptEnterHidingSpot(
   player.preHideX = player.x;
   player.preHideY = player.y;
   player.hiddenInSpotId = spot.id;
+  player.hideTimerRemaining = state.config.maxHideDurationSeconds ?? 30;
   player.interactingWithObjective = false;
   player.vx = 0;
   player.vy = 0;
@@ -550,6 +570,9 @@ export function attemptExitHidingSpot(
     state.hidingOccupancy[spotId] = null;
   }
   player.hiddenInSpotId = null;
+  player.hideTimerRemaining = 0;
+  player.lastExitedSpotId = spotId;
+  player.spotCooldownRemaining = 4;
 
   const map = MAPS[state.config.mapId];
   const targetX =
@@ -670,32 +693,28 @@ export function attemptInspectHidingSpot(
   const occupantId = state.hidingOccupancy[spot.id];
   if (occupantId && state.players[occupantId] && state.players[occupantId].alive) {
     const hider = state.players[occupantId];
-    if (spot.canEliminateOccupant) {
-      hider.alive = false;
-      hider.hiddenInSpotId = null;
-      hider.interactingWithObjective = false;
-      state.hidingOccupancy[spot.id] = null;
-      seeker.eliminationsCount += 1;
-
-      state.events.unshift({
-        id: `evt_${nowMs}_inspect_hit_${hider.id}`,
-        timestamp: nowMs,
-        type: 'elimination',
-        message: `${seeker.name} inspected ${spot.label} and eliminated ${hider.name}!`,
-        x: spotCenterX,
-        y: spotCenterY,
-      });
-
-      evaluateMatchWinConditions(state);
-      return { ok: true, foundPlayerId: hider.id, spotLabel: spot.label };
-    }
+    const rem = Math.ceil(hider.hideTimerRemaining ?? state.config.maxHideDurationSeconds);
+    state.events.unshift({
+      id: `evt_${nowMs}_inspect_safe_${hider.id}`,
+      timestamp: nowMs,
+      type: 'info',
+      message: `${hider.name} is locked inside ${spot.label} (Protected for ${rem}s)!`,
+      x: spotCenterX,
+      y: spotCenterY,
+    });
+    return {
+      ok: false,
+      foundPlayerId: null,
+      spotLabel: spot.label,
+      reason: 'Hiders cannot be killed while hidden! Wait for their 30s hide timer to expire.',
+    };
   }
 
   state.events.unshift({
     id: `evt_${nowMs}_inspect_empty_${spot.id}`,
     timestamp: nowMs,
     type: 'inspect_empty',
-    message: `${seeker.name} inspected ${spot.label} — Empty.`,
+    message: `${seeker.name} checked ${spot.label} — Empty.`,
     x: spotCenterX,
     y: spotCenterY,
   });
@@ -828,6 +847,38 @@ export function stepAuthoritativeMatch(state: MatchState, dt: number): void {
     state.elapsedMatchSeconds += clampedDt;
   }
 
+  // Enforce 30-second max hiding duration for hidden hiders & tick spot cooldowns
+  const maxHideSecs = state.config.maxHideDurationSeconds ?? 30;
+  for (const player of Object.values(state.players)) {
+    if (player.spotCooldownRemaining && player.spotCooldownRemaining > 0) {
+      player.spotCooldownRemaining = Math.max(0, player.spotCooldownRemaining - clampedDt);
+      if (player.spotCooldownRemaining <= 0) {
+        player.lastExitedSpotId = null;
+      }
+    }
+
+    if (player.alive && player.role === 'hider' && player.hiddenInSpotId !== null) {
+      const prevRem =
+        typeof player.hideTimerRemaining === 'number' ? player.hideTimerRemaining : maxHideSecs;
+      const nextRem = Math.max(0, prevRem - clampedDt);
+      player.hideTimerRemaining = nextRem;
+
+      if (nextRem <= 0) {
+        const expiredSpotId = player.hiddenInSpotId;
+        const spotObj = map.hidingSpots.find((s) => s.id === expiredSpotId);
+        attemptExitHidingSpot(state, player.id);
+        state.events.unshift({
+          id: `evt_${Date.now()}_hide_expired_${player.id}`,
+          timestamp: Date.now(),
+          type: 'hide',
+          message: `${player.name}'s ${maxHideSecs}s hide timer expired at ${spotObj?.label || 'hiding spot'}!`,
+          x: player.x,
+          y: player.y,
+        });
+      }
+    }
+  }
+
   // Validate objective interaction for all living hiders
   const activeHolders: string[] = [];
   for (const player of Object.values(state.players)) {
@@ -913,10 +964,15 @@ export function getAvailableContextualActions(
   if (player.role === 'hider') {
     if (player.hiddenInSpotId) {
       const spot = map.hidingSpots.find((s) => s.id === player.hiddenInSpotId);
+      const remSec = Math.ceil(
+        player.hideTimerRemaining ?? state.config.maxHideDurationSeconds ?? 30
+      );
       actions.push({
         action: 'exit_hide',
-        label: 'Exit Hiding Place',
-        sublabel: spot ? spot.label : 'Step back onto street',
+        label: `Exit Hiding (${remSec}s left)`,
+        sublabel: spot
+          ? `${spot.label} · Auto-exits after 30s`
+          : 'Safe while hidden · Auto-exits after 30s',
         targetId: player.hiddenInSpotId,
       });
       return actions;
@@ -927,6 +983,13 @@ export function getAvailableContextualActions(
     let nearestSpotDist = Infinity;
     for (const spot of map.hidingSpots) {
       if (state.hidingOccupancy[spot.id] !== null) continue;
+      if (
+        player.lastExitedSpotId === spot.id &&
+        player.spotCooldownRemaining &&
+        player.spotCooldownRemaining > 0
+      ) {
+        continue;
+      }
       const cx = spot.x + spot.width / 2;
       const cy = spot.y + spot.height / 2;
       const dist = Math.hypot(player.x - cx, player.y - cy);
@@ -943,7 +1006,7 @@ export function getAvailableContextualActions(
       actions.push({
         action: 'hide',
         label: `Hide in ${nearestSpot.label}`,
-        sublabel: 'Conceals position from Seeker sight',
+        sublabel: `Safe from Killer for up to ${state.config.maxHideDurationSeconds ?? 30}s`,
         targetId: nearestSpot.id,
       });
     }
@@ -971,7 +1034,7 @@ export function getAvailableContextualActions(
       return [];
     }
 
-    // Check for living visible hider in direct elimination range
+    // Check for living visible (unhidden) hider in direct elimination range
     let nearestHider: PlayerState | null = null;
     let nearestHiderDist = Infinity;
     for (const other of Object.values(state.players)) {
@@ -990,34 +1053,8 @@ export function getAvailableContextualActions(
       actions.push({
         action: 'eliminate',
         label: `Eliminate ${nearestHider.name}`,
-        sublabel: 'Direct close-range catch',
+        sublabel: 'Direct close-range catch in the open',
         targetId: nearestHider.id,
-      });
-    }
-
-    // Check for inspectable hiding spot in range
-    let nearestInspectSpot: HidingSpotConfig | null = null;
-    let nearestInspectDist = Infinity;
-    for (const spot of map.hidingSpots) {
-      if (!spot.canInspect) continue;
-      const cx = spot.x + spot.width / 2;
-      const cy = spot.y + spot.height / 2;
-      const dist = Math.hypot(player.x - cx, player.y - cy);
-      if (
-        dist <= spot.interactionRange &&
-        dist < nearestInspectDist &&
-        hasLineOfSight(player.x, player.y, cx, cy, map.walls)
-      ) {
-        nearestInspectSpot = spot;
-        nearestInspectDist = dist;
-      }
-    }
-    if (nearestInspectSpot) {
-      actions.push({
-        action: 'inspect',
-        label: `Inspect ${nearestInspectSpot.label}`,
-        sublabel: 'Eliminates occupant if hidden inside',
-        targetId: nearestInspectSpot.id,
       });
     }
   }
@@ -1102,11 +1139,18 @@ export function stepBotAI(
 
     setObjectiveInteraction(state, bot.id, false);
 
-    // Find best unoccupied hiding spot
+    // Find best unoccupied hiding spot (skipping recently exited spot on cooldown)
     let targetSpot: HidingSpotConfig | null = null;
     let bestScore = Infinity;
     for (const spot of map.hidingSpots) {
       if (state.hidingOccupancy[spot.id] !== null) continue;
+      if (
+        bot.lastExitedSpotId === spot.id &&
+        bot.spotCooldownRemaining &&
+        bot.spotCooldownRemaining > 0
+      ) {
+        continue;
+      }
       const cx = spot.x + spot.width / 2;
       const cy = spot.y + spot.height / 2;
       const distFromBot = Math.hypot(bot.x - cx, bot.y - cy);

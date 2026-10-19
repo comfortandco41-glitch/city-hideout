@@ -918,7 +918,7 @@ export default function App() {
                 }
                 className="min-h-[52px] px-5 py-3.5 rounded-xl bg-slate-900/95 hover:bg-slate-800 text-red-300 border-2 border-red-500/50 font-display font-bold text-sm tracking-wide transition-colors cursor-pointer"
               >
-                Play as Seeker (Knight · 1.5×)
+                Play as Seeker (Knight · 1.1×)
               </button>
             </div>
           </div>
@@ -949,7 +949,7 @@ export default function App() {
                     hud.role === 'seeker' ? 'text-red-400' : 'text-emerald-400'
                   }`}
                 >
-                  {hud.role === 'seeker' ? 'SEEKER (150%)' : 'HIDER (100%)'}
+                  {hud.role === 'seeker' ? 'SEEKER (110%)' : 'HIDER (100%)'}
                 </div>
               </div>
 

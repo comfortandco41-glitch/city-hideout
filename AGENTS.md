@@ -4,9 +4,9 @@
 **CITY HIDEOUT** is a 2D pixel-art online multiplayer hide-and-seek game set in compact urban blocks.
 - **Teams**: Seekers vs. Hiders.
 - **Head Start**: Hiders spawn in the city-center plaza and get an authoritative **10-second head start** while Seekers remain locked in their precinct starting zone.
-- **Speed Ratio**: Hiders move at `100%` base speed (`160 px/s`). Seekers move at `150%` (`1.5x` = `240 px/s`).
-- **Hiding System**: Data-driven urban hiding objects (`18` in Downtown Metro Plaza, `20` in Harbor Shipping District). Single-capacity occupancy (`1 hider per object`), validated on the server.
-- **Seeker Elimination**: No shooting system. Seekers eliminate hiders via (A) close-range direct elimination with line-of-sight check, or (B) inspecting occupied hiding places.
+- **Speed Ratio**: Hiders move at `100%` base speed (`160 px/s`). Seekers move at `110%` (`1.1x` = `176 px/s`).
+- **Hiding System**: Data-driven urban hiding objects (`18` in Downtown Metro Plaza, `20` in Harbor Shipping District). Single-capacity occupancy (`1 hider per object`), validated on the server. Hiders are protected from the Killer while hidden inside an object, up to a **maximum hide time of 30 seconds** (`maxHideDurationSeconds: 30`), after which the hider is automatically forced out.
+- **Seeker Elimination**: No shooting system. Seekers cannot kill hiders while they are hidden inside an object; Seekers eliminate hiders via close-range direct elimination in the open (with line-of-sight check) when hiders move between spots, hold the beacon, or are forced out after 30 seconds.
 - **Hider Escape Objective**: City-Center Signal Beacon requiring **3 separate stages of 15 uninterrupted seconds each** (`45s` total across 3 stages). Interruption resets only the active stage.
 
 ## 2. Technical Stack & Cross-Platform Targets

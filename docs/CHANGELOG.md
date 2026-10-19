@@ -1,6 +1,13 @@
 # Changelog — CITY HIDEOUT
 
 ## [1.1.1] — 2026-10-19
+### Changed
+- **Hiding Protection & 30-Second Max Hide Timer (`src/game/rules.ts`, `src/game/pixelSprites.ts`, `src/components/GameModals.tsx`)**:
+  - Hiders are now completely safe from being killed by the Killer while hidden inside a hiding object.
+  - Added a **30-second maximum hide timer** (`maxHideDurationSeconds: 30`) per hiding spot with a live overhead countdown bar (`[HIDDEN · 30s]`) and HUD prompt countdown. When the 30 seconds expire, the hider is automatically forced out of the hiding place.
+- **Seeker Speed Balance (`src/game/rules.ts`, `src/App.tsx`, `src/components/GameModals.tsx`)**:
+  - Adjusted `seekerSpeedMultiplier` from `1.5×` (`240 px/s`) to `1.1×` (`176 px/s` vs. Hider `160 px/s`) for fairer chase pacing.
+
 ### Fixed
 - **Post-Hiding Movement & Wall Clearance (`src/game/maps.ts`, `src/game/rules.ts`, `src/App.tsx`)**:
   - Repositioned hiding spots across both `downtown_plaza` (18 spots) and `harbor_district` (20 spots) so no hiding spot center overlaps or crowds building walls.

@@ -64,10 +64,10 @@ function seedTwoPlayers() {
   return state;
 }
 
-test('Movement tests: Seeker moves at 1.5x Hider speed and respects walls and head-start lock', () => {
+test('Movement tests: Seeker moves at 1.1x Hider speed and respects walls and head-start lock', () => {
   const hiderSpeed = getPlayerSpeed('hider', DEFAULT_MATCH_CONFIG);
   const seekerSpeed = getPlayerSpeed('seeker', DEFAULT_MATCH_CONFIG);
-  assert.equal(seekerSpeed, hiderSpeed * 1.5);
+  assert.equal(seekerSpeed, hiderSpeed * 1.1);
 
   const state = seedTwoPlayers();
   const map = MAPS[state.config.mapId];
@@ -120,7 +120,7 @@ test('Hiding tests: Single-capacity enforcement, movement lock while hidden, and
   assert.equal(state.hidingOccupancy[spot.id], null);
 });
 
-test('Elimination & Inspection tests: Head-start protection, range check, empty vs occupied inspection', () => {
+test('Hiding protection & 30s Max Hide Timer: Killer cannot kill hidden hider, and hider automatically comes out after 30s', () => {
   const state = seedTwoPlayers();
   const map = MAPS[state.config.mapId];
   const spot = map.hidingSpots[0];
@@ -137,24 +137,42 @@ test('Elimination & Inspection tests: Head-start protection, range check, empty 
   }
   assert.equal(state.lifecycle, 'MATCH_ACTIVE');
 
-  // Inspect empty hiding spot -> does not eliminate anyone
-  state.players['p1'].x = spot.x + spot.width / 2;
-  state.players['p1'].y = spot.y + spot.height / 2 + 24;
-  const emptyInspect = attemptInspectHidingSpot(state, 'p1', spot.id, 5000);
-  assert.equal(emptyInspect.ok, true);
-  assert.equal(emptyInspect.foundPlayerId, null);
-  assert.equal(state.players['p2'].alive, true);
-
-  // Hider hides in spot -> Seeker inspects -> Hider eliminated & spot freed & Seeker wins
+  // Hider enters hiding spot -> hideTimerRemaining starts at 30s
   state.players['p2'].x = spot.x + spot.width / 2;
   state.players['p2'].y = spot.y + spot.height / 2 + 20;
   assert.equal(attemptEnterHidingSpot(state, 'p2', spot.id).ok, true);
+  assert.equal(state.players['p2'].hiddenInSpotId, spot.id);
+  assert.equal(state.players['p2'].hideTimerRemaining, 30);
 
-  const occupiedInspect = attemptInspectHidingSpot(state, 'p1', spot.id, 7000);
-  assert.equal(occupiedInspect.ok, true);
-  assert.equal(occupiedInspect.foundPlayerId, 'p2');
-  assert.equal(state.players['p2'].alive, false);
+  // Killer cannot kill hider while hidden (neither direct elimination nor inspection)
+  state.players['p1'].x = spot.x + spot.width / 2;
+  state.players['p1'].y = spot.y + spot.height / 2 + 20;
+  const directWhileHidden = attemptDirectElimination(state, 'p1');
+  assert.equal(directWhileHidden.ok, false);
+  const inspectWhileHidden = attemptInspectHidingSpot(state, 'p1', spot.id, 7000);
+  assert.equal(inspectWhileHidden.ok, false);
+  assert.equal(state.players['p2'].alive, true);
+  assert.equal(state.players['p2'].hiddenInSpotId, spot.id);
+
+  // Advance 29 seconds -> Hider is still hidden with ~1s left
+  for (let i = 0; i < 290; i++) {
+    stepAuthoritativeMatch(state, 0.1);
+  }
+  assert.equal(state.players['p2'].hiddenInSpotId, spot.id);
+
+  // Advance past 30 seconds -> Hider is automatically forced out of hiding!
+  for (let i = 0; i < 15; i++) {
+    stepAuthoritativeMatch(state, 0.1);
+  }
+  assert.equal(state.players['p2'].hiddenInSpotId, null);
   assert.equal(state.hidingOccupancy[spot.id], null);
+
+  // Now that the hider has come out, Killer can eliminate them in the open!
+  state.players['p1'].x = state.players['p2'].x;
+  state.players['p1'].y = state.players['p2'].y;
+  const elimInOpen = attemptDirectElimination(state, 'p1');
+  assert.equal(elimInOpen.ok, true);
+  assert.equal(state.players['p2'].alive, false);
   assert.equal(state.lifecycle, 'MATCH_COMPLETED');
   assert.equal(state.winner, 'seekers');
 });
