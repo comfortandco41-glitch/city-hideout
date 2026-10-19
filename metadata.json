@@ -1,0 +1,6 @@
+{
+  "name": "CITY HIDEOUT",
+  "description": "Online multiplayer 2D pixel-art urban hide-and-seek game with authoritative matchmaking, 18+ interactive hiding spots, 3-stage city-center escape beacon, guest sessions, and mobile touch controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
